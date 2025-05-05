@@ -1,0 +1,112 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Random Video Chat</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; }
+        .container { max-width: 800px; margin: 20px auto; text-align: center; }
+        #localVideo, #remoteVideo { width: 400px; background: #333; margin: 10px; }
+        #startButton { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Random Video Chat</h1>
+        <button id="startButton">Start New Chat</button>
+        <div>
+            <video id="localVideo" autoplay muted playsinline></video>
+            <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+    </div>
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        let localStream;
+        let peerConnection;
+        let myId;
+        let partnerId;
+
+        const configuration = {
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        };
+
+        async function startChat() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                document.getElementById('localVideo').srcObject = localStream;
+                initiatePeerConnection();
+            } catch (e) {
+                console.error('Error accessing media devices:', e);
+            }
+        }
+
+        function initiatePeerConnection() {
+            peerConnection = new RTCPeerConnection(configuration);
+            
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = event => {
+                document.getElementById('remoteVideo').srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    sendMessage({
+                        target: partnerId,
+                        message_type: 'ice-candidate',
+                        data: JSON.stringify(event.candidate)
+                    });
+                }
+            };
+
+            createOffer();
+        }
+
+        async function createOffer() {
+            try {
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                sendMessage({
+                    target: partnerId,
+                    message_type: 'offer',
+                    data: JSON.stringify(offer)
+                });
+            } catch (e) {
+                console.error('Error creating offer:', e);
+            }
+        }
+
+        function sendMessage(message) {
+            ws.send(JSON.stringify(message));
+        }
+
+        ws.onmessage = async function(event) {
+            const message = JSON.parse(event.data);
+            
+            if (message.message_type === 'offer') {
+                const offer = JSON.parse(message.data);
+                await peerConnection.setRemoteDescription(offer);
+                
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                
+                sendMessage({
+                    target: message.source,
+                    message_type: 'answer',
+                    data: JSON.stringify(answer)
+                });
+            } else if (message.message_type === 'answer') {
+                const answer = JSON.parse(message.data);
+                await peerConnection.setRemoteDescription(answer);
+            } else if (message.message_type === 'ice-candidate') {
+                const candidate = JSON.parse(message.data);
+                await peerConnection.addIceCandidate(candidate);
+            }
+        };
+
+        document.getElementById('startButton').onclick = startChat;
+    </script>
+</body>
+</html>
