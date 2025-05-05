@@ -1,15 +1,27 @@
-
+use tokio::sync::mpsc::UnboundedReceiver;
+use futures::stream::Stream; // Required for using StreamExt
+use warp::Filter; // Required for using warp filters// Example of a warp filter with UnboundedReceiver
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use warp::ws::{Message, WebSocket};
-use warp::Filter;
 use uuid::Uuid;
 use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
 
 type Users = Arc<RwLock<HashMap<String, User>>>;
 type WaitingUsers = Arc<RwLock<Vec<String>>>;
+
+const FILTER: warp::Filter<()> = warp::filters::any()
+    .map(move || {
+        let mut receiver = move my_unbounded_receiver; // your receiver
+        move || {
+            // Wrapped logic to handle messages from the receiver
+            if let Ok(message) = receiver.try_recv() {
+                // process your message
+            }
+        }
+    });
 
 #[derive(Debug)]
 struct User {
