@@ -25,9 +25,64 @@
         let peerConnection;
         let myId;
         let partnerId;
+        
+        function displayError(message, code) {
+            const errorDiv = document.getElementById('error');
+            if (code) {
+                errorDiv.textContent = `Error [${code}]: ${message}`;
+            } else {
+                errorDiv.textContent = message;
+            }
+            errorDiv.style.display = 'block';
+            errorDiv.classList.add('error-shake');
+            
+            // Log to console for debugging
+            console.error(`WebRTC Error: ${message}`, code ? `(Code: ${code})` : '');
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+                errorDiv.classList.remove('error-shake');
+            }, 5000);
+        }
+        
+        // Add CSS for error animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes error-shake {
+                0% { transform: translateX(0); }
+                25% { transform: translateX(-5px); }
+                50% { transform: translateX(5px); }
+                75% { transform: translateX(-5px); }
+                100% { transform: translateX(0); }
+            }
+            .error-shake {
+                animation: error-shake 0.5s ease-in-out;
+                background-color: #ffdddd;
+                border-left: 4px solid #f44336;
+                padding-left: 10px;
+            }
+        `;
+        document.head.appendChild(style);
 
-        const configuration = {
+        // Default configuration with fallback STUN server
+        let configuration = {
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        };
+        
+        // Track connection attempts for fallback mechanism
+        let connectionAttempts = 0;
+        const MAX_CONNECTION_ATTEMPTS = 3;
+        
+        // WebSocket connection error handling
+        ws.onerror = function(error) {
+            displayError('WebSocket connection failed');
+        };
+        
+        ws.onclose = function(event) {
+            if (!event.wasClean) {
+                displayError('WebSocket connection closed unexpectedly');
+            }
         };
 
         async function startChat() {
@@ -37,31 +92,94 @@
                 initiatePeerConnection();
             } catch (e) {
                 console.error('Error accessing media devices:', e);
+                displayError(`Could not access camera or microphone: ${e.message || 'Permission denied'}`);
             }
         }
 
         function initiatePeerConnection() {
-            peerConnection = new RTCPeerConnection(configuration);
-            
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
-
-            peerConnection.ontrack = event => {
-                document.getElementById('remoteVideo').srcObject = event.streams[0];
-            };
-
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    sendMessage({
-                        target: partnerId,
-                        message_type: 'ice-candidate',
-                        data: JSON.stringify(event.candidate)
-                    });
+            try {
+                // Close any existing connection
+                if (peerConnection) {
+                    peerConnection.close();
                 }
-            };
+                
+                console.log('Creating peer connection with configuration:', 
+                    JSON.stringify(configuration.iceServers.map(s => ({ urls: s.urls, hasAuth: !!s.username }))));
+                peerConnection = new RTCPeerConnection(configuration);
+                
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
 
-            createOffer();
+                peerConnection.ontrack = event => {
+                    document.getElementById('remoteVideo').srcObject = event.streams[0];
+                };
+
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        sendMessage({
+                            target: partnerId,
+                            message_type: 'ice-candidate',
+                            data: JSON.stringify(event.candidate)
+                        });
+                    }
+                };
+                
+                // Monitor ICE connection state for fallback mechanism
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                    
+                    if (peerConnection.iceConnectionState === 'failed') {
+                        console.warn(`ICE connection failed (attempt ${connectionAttempts + 1}/${MAX_CONNECTION_ATTEMPTS})`);
+                        
+                        // Try reconnecting with different transport options if we haven't exceeded max attempts
+                        if (connectionAttempts < MAX_CONNECTION_ATTEMPTS) {
+                            connectionAttempts++;
+                            console.log('Attempting connection with different transport options...');
+                            
+                            // Prioritize TCP if UDP is failing
+                            if (connectionAttempts === 1) {
+                                // Reorder ICE servers to prioritize TCP transports
+                                configuration.iceServers.forEach(server => {
+                                    if (Array.isArray(server.urls)) {
+                                        // Move TCP URLs to the front
+                                        server.urls.sort((a, b) => {
+                                            return a.includes('tcp') ? -1 : b.includes('tcp') ? 1 : 0;
+                                        });
+                                    }
+                                });
+                            }
+                            
+                            // Restart ICE gathering with the modified configuration
+                            initiatePeerConnection();
+                            createOffer();
+                        } else {
+                            displayError('Connection failed after multiple attempts. Please check your network or try again later.');
+                        }
+                    } else if (peerConnection.iceConnectionState === 'connected' || 
+                              peerConnection.iceConnectionState === 'completed') {
+                        console.log('ICE connection established successfully');
+                        connectionAttempts = 0; // Reset counter on success
+                    }
+                };
+                
+                peerConnection.onicecandidateerror = event => {
+                    console.error('ICE candidate error:', event);
+                };
+                
+                peerConnection.onconnectionstatechange = event => {
+                    if (peerConnection.connectionState === 'failed' || 
+                        peerConnection.connectionState === 'disconnected' || 
+                        peerConnection.connectionState === 'closed') {
+                        displayError(`Connection failed: ${peerConnection.connectionState}`);
+                    }
+                };
+
+                createOffer();
+            } catch (e) {
+                console.error('Error setting up peer connection:', e);
+                displayError(`Failed to setup connection: ${e.message}`);
+            }
         }
 
         async function createOffer() {
@@ -75,34 +193,92 @@
                 });
             } catch (e) {
                 console.error('Error creating offer:', e);
+                displayError(`Failed to create connection offer: ${e.message}`);
             }
         }
 
         function sendMessage(message) {
-            ws.send(JSON.stringify(message));
+            try {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(message));
+                } else {
+                    displayError('WebSocket is not connected');
+                }
+            } catch (e) {
+                console.error('Error sending message:', e);
+                displayError(`Failed to send message: ${e.message}`);
+            }
         }
 
         ws.onmessage = async function(event) {
-            const message = JSON.parse(event.data);
-            
-            if (message.message_type === 'offer') {
-                const offer = JSON.parse(message.data);
-                await peerConnection.setRemoteDescription(offer);
+            try {
+                const message = JSON.parse(event.data);
                 
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
+                if (message.message_type === 'error') {
+                    // Handle structured error messages with code
+                    displayError(message.error, message.code);
+                    console.debug('Error details:', message.details || 'No additional details');
+                    return;
+                }
                 
-                sendMessage({
-                    target: message.source,
-                    message_type: 'answer',
-                    data: JSON.stringify(answer)
-                });
-            } else if (message.message_type === 'answer') {
-                const answer = JSON.parse(message.data);
-                await peerConnection.setRemoteDescription(answer);
-            } else if (message.message_type === 'ice-candidate') {
-                const candidate = JSON.parse(message.data);
-                await peerConnection.addIceCandidate(candidate);
+                if (message.message_type === 'connected') {
+                    // Store my ID
+                    myId = message.data;
+                    console.log('Connected with ID:', myId);
+                    
+                    // Update ICE servers configuration if provided by the server
+                    if (message.ice_servers && Array.isArray(message.ice_servers)) {
+                        console.log('Received ICE server configuration from server');
+                        configuration.iceServers = message.ice_servers;
+                        
+                        // Log the servers for debugging (without credentials)
+                        const serverUrls = configuration.iceServers.map(server => {
+                            return {
+                                urls: server.urls,
+                                hasCredentials: !!(server.username && server.credential)
+                            };
+                        });
+                        console.log('Using ICE servers:', serverUrls);
+                    }
+                } else if (message.message_type === 'offer') {
+                    try {
+                        const offer = JSON.parse(message.data);
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                        
+                        const answer = await peerConnection.createAnswer();
+                        await peerConnection.setLocalDescription(answer);
+                        
+                        sendMessage({
+                            target: message.source,
+                            message_type: 'answer',
+                            data: JSON.stringify(answer)
+                        });
+                    } catch (e) {
+                        console.error('Error processing offer:', e);
+                        displayError(`Failed to process connection offer: ${e.message}`);
+                    }
+                } else if (message.message_type === 'answer') {
+                    try {
+                        const answer = JSON.parse(message.data);
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                    } catch (e) {
+                        console.error('Error processing answer:', e);
+                        displayError(`Failed to process connection answer: ${e.message}`);
+                    }
+                } else if (message.message_type === 'ice-candidate') {
+                    try {
+                        const candidate = JSON.parse(message.data);
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                    } catch (e) {
+                        console.error('Error adding ICE candidate:', e);
+                        // Don't show this error to user as it's common and often recoverable
+                    }
+                } else if (message.message_type === 'error') {
+                    displayError(`Server message: ${message.data}`);
+                }
+            } catch (e) {
+                console.error('Error processing message:', e);
+                displayError(`Failed to process message: ${e.message}`);
             }
         };
 
