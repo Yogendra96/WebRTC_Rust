@@ -1,14 +1,46 @@
-# WebRTC Signaling Server with TURN Support
+# Advanced WebRTC Video Chat Application
 
-This is a WebRTC signaling server implemented in Rust with TURN server support for NAT traversal. The server facilitates WebRTC connections between peers, especially in challenging network environments where direct peer-to-peer connections might not be possible.
+A modern, feature-rich WebRTC video chat application built with Rust backend and vanilla JavaScript frontend. This application provides a complete random video chat experience with advanced features for reliable peer-to-peer communication.
 
-## Features
+## ✨ Key Features
 
-- WebSocket-based signaling server
-- Multiple STUN/TURN server support for reliable connections
-- Automatic fallback mechanisms for connection reliability
-- Time-limited TURN credentials generation
-- Environment variable configuration for production deployment
+### 🎥 **Video & Audio**
+- **High-quality video calls** with configurable resolution (360p, 480p, 720p)
+- **Audio/video toggle controls** for privacy
+- **Screen sharing capability** with automatic fallback to camera
+- **Auto-start preferences** for media devices
+
+### 👥 **Smart Matching**
+- **Intelligent waiting room** with real-time queue status
+- **Instant partner matching** when users are available
+- **"Next Partner" functionality** for quick connections
+- **Connection quality monitoring** with real-time indicators
+
+### 💬 **Communication**
+- **Real-time text chat** alongside video calls
+- **Message history** during conversations
+- **Content filtering** to prevent spam and inappropriate content
+- **Rate limiting** (20 messages/minute) for abuse prevention
+
+### 🔒 **Security & Privacy**
+- **Message size limits** (16KB) to prevent DoS attacks
+- **Automated content filtering** for inappropriate messages
+- **Rate limiting per user** to prevent spam
+- **Session management** with connection tracking
+- **Comprehensive error handling** with user-friendly messages
+
+### ⚙️ **User Experience**
+- **Persistent user settings** stored locally
+- **Responsive modern UI** with clean design
+- **Connection status indicators** 
+- **Quality monitoring** (Excellent/Good/Poor)
+- **Graceful error handling** with recovery suggestions
+
+### 🌐 **Network Reliability**
+- **Multiple STUN/TURN server support** for NAT traversal
+- **Automatic fallback mechanisms** for connection reliability
+- **Environment variable configuration** for production
+- **Time-limited TURN credentials** for security
 
 ## TURN Server Integration
 

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Video Chat - Login</title>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .auth-container { 
+            background: white; 
+            padding: 40px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .auth-container h1 { 
+            color: #333; 
+            margin-bottom: 30px; 
+        }
+        
+        .form-group { 
+            margin-bottom: 20px; 
+            text-align: left; 
+        }
+        
+        .form-group label { 
+            display: block; 
+            margin-bottom: 5px; 
+            color: #555; 
+            font-weight: bold;
+        }
+        
+        .form-group input { 
+            width: 100%; 
+            padding: 12px; 
+            border: 2px solid #ddd; 
+            border-radius: 8px; 
+            font-size: 16px;
+            box-sizing: border-box;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn { 
+            width: 100%; 
+            padding: 12px; 
+            background: #667eea; 
+            color: white; 
+            border: none; 
+            border-radius: 8px; 
+            font-size: 16px; 
+            cursor: pointer; 
+            margin-bottom: 10px;
+            transition: background 0.3s;
+        }
+        
+        .btn:hover { 
+            background: #5a67d8; 
+        }
+        
+        .btn-secondary { 
+            background: #e2e8f0; 
+            color: #4a5568; 
+        }
+        
+        .btn-secondary:hover { 
+            background: #cbd5e0; 
+        }
+        
+        .error { 
+            color: #e53e3e; 
+            background: #fed7d7; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin-bottom: 15px; 
+            text-align: center;
+        }
+        
+        .success { 
+            color: #38a169; 
+            background: #c6f6d5; 
+            padding: 10px; 
+            border-radius: 5px; 
+            margin-bottom: 15px; 
+            text-align: center;
+        }
+        
+        .toggle-link { 
+            color: #667eea; 
+            cursor: pointer; 
+            text-decoration: underline; 
+        }
+        
+        .toggle-link:hover { 
+            color: #5a67d8; 
+        }
+        
+        .hidden { 
+            display: none; 
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <h1>🎥 Video Chat</h1>
+        
+        <div id="error-message" class="error hidden"></div>
+        <div id="success-message" class="success hidden"></div>
+        
+        <!-- Login Form -->
+        <div id="login-form">
+            <h2>Sign In</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="login-username">Username</label>
+                    <input type="text" id="login-username" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <input type="password" id="login-password" required>
+                </div>
+                
+                <button type="submit" class="btn">Sign In</button>
+            </form>
+            
+            <p>Don't have an account? <span class="toggle-link" onclick="toggleForms()">Sign up</span></p>
+        </div>
+        
+        <!-- Register Form -->
+        <div id="register-form" class="hidden">
+            <h2>Sign Up</h2>
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="register-username">Username</label>
+                    <input type="text" id="register-username" required minlength="3">
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-email">Email</label>
+                    <input type="email" id="register-email" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-display-name">Display Name (Optional)</label>
+                    <input type="text" id="register-display-name">
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-password">Password</label>
+                    <input type="password" id="register-password" required minlength="6">
+                </div>
+                
+                <div class="form-group">
+                    <label for="register-confirm-password">Confirm Password</label>
+                    <input type="password" id="register-confirm-password" required minlength="6">
+                </div>
+                
+                <button type="submit" class="btn">Sign Up</button>
+            </form>
+            
+            <p>Already have an account? <span class="toggle-link" onclick="toggleForms()">Sign in</span></p>
+        </div>
+    </div>
+    
+    <script>
+        let currentForm = 'login';
+        
+        function toggleForms() {
+            const loginForm = document.getElementById('login-form');
+            const registerForm = document.getElementById('register-form');
+            
+            if (currentForm === 'login') {
+                loginForm.classList.add('hidden');
+                registerForm.classList.remove('hidden');
+                currentForm = 'register';
+            } else {
+                registerForm.classList.add('hidden');
+                loginForm.classList.remove('hidden');
+                currentForm = 'login';
+            }
+            
+            clearMessages();
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+            document.getElementById('success-message').classList.add('hidden');
+        }
+        
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success-message');
+            successDiv.textContent = message;
+            successDiv.classList.remove('hidden');
+            document.getElementById('error-message').classList.add('hidden');
+        }
+        
+        function clearMessages() {
+            document.getElementById('error-message').classList.add('hidden');
+            document.getElementById('success-message').classList.add('hidden');
+        }
+        
+        async function makeRequest(url, method, data) {
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Request failed');
+                }
+                
+                return result;
+            } catch (error) {
+                throw error;
+            }
+        }
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearMessages();
+            
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            
+            try {
+                const result = await makeRequest('/api/login', 'POST', {
+                    username: username,
+                    password: password
+                });
+                
+                if (result.success) {
+                    // Store the token
+                    localStorage.setItem('auth-token', result.token);
+                    localStorage.setItem('user-info', JSON.stringify(result.user));
+                    
+                    showSuccess('Login successful! Redirecting...');
+                    
+                    // Redirect to main app after 1 second
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                }
+            } catch (error) {
+                showError(error.message || 'Login failed. Please check your credentials.');
+            }
+        });
+        
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearMessages();
+            
+            const username = document.getElementById('register-username').value;
+            const email = document.getElementById('register-email').value;
+            const displayName = document.getElementById('register-display-name').value;
+            const password = document.getElementById('register-password').value;
+            const confirmPassword = document.getElementById('register-confirm-password').value;
+            
+            // Validate passwords match
+            if (password !== confirmPassword) {
+                showError('Passwords do not match');
+                return;
+            }
+            
+            try {
+                const result = await makeRequest('/api/register', 'POST', {
+                    username: username,
+                    email: email,
+                    display_name: displayName || null,
+                    password: password
+                });
+                
+                if (result.success) {
+                    // Store the token
+                    localStorage.setItem('auth-token', result.token);
+                    localStorage.setItem('user-info', JSON.stringify(result.user));
+                    
+                    showSuccess('Registration successful! Redirecting...');
+                    
+                    // Redirect to main app after 1 second
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                }
+            } catch (error) {
+                showError(error.message || 'Registration failed. Please try again.');
+            }
+        });
+        
+        // Check if user is already logged in
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('auth-token');
+            if (token) {
+                // Verify token is still valid by calling profile endpoint
+                fetch('/api/profile', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        // User is already logged in, redirect to main app
+                        window.location.href = '/';
+                    }
+                })
+                .catch(() => {
+                    // Token is invalid, remove it
+                    localStorage.removeItem('auth-token');
+                    localStorage.removeItem('user-info');
+                });
+            }
+        });
+    </script>
+</body>
+</html>

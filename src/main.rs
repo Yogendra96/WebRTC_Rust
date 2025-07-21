@@ -16,10 +16,16 @@ use warp::Reply;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::env;
 use tokio_stream;
+use std::collections::VecDeque;
+use sqlx::{SqlitePool, Row};
+use bcrypt::{hash, verify, DEFAULT_COST};
+use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
+use chrono::{DateTime, Utc};
 
 type Users = Arc<RwLock<HashMap<String, User>>>;
 type WaitingUsers = Arc<RwLock<Vec<String>>>;
 type IceServers = Arc<Vec<IceServer>>;
+type Database = Arc<SqlitePool>;
 
 // Example filter for processing messages from a channel
 // Commented out as it's not used in the current implementation
@@ -40,6 +46,11 @@ const FILTER: warp::Filter<()> = warp::filters::any()
 struct User {
     id: String,
     tx: tokio::sync::mpsc::UnboundedSender<Message>,
+    status: UserStatus,
+    connected_at: std::time::SystemTime,
+    message_count: u32,
+    last_message_time: std::time::SystemTime,
+    message_timestamps: VecDeque<std::time::SystemTime>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,6 +60,79 @@ struct WebRTCMessage {
     data: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     source: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ChatMessage {
+    message_type: String,
+    content: String,
+    timestamp: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+enum UserStatus {
+    Connected,
+    Waiting,
+    InCall(String), // Partner ID
+    Disconnected,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DbUser {
+    id: String,
+    username: String,
+    email: String,
+    display_name: Option<String>,
+    created_at: DateTime<Utc>,
+    last_login: Option<DateTime<Utc>>,
+    is_active: bool,
+    is_admin: bool,
+    preferences: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UserRegistration {
+    username: String,
+    email: String,
+    password: String,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UserLogin {
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Claims {
+    sub: String, // user id
+    username: String,
+    exp: usize,  // expiration time
+    iat: usize,  // issued at
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Room {
+    id: String,
+    name: Option<String>,
+    room_type: String,
+    invite_code: Option<String>,
+    created_by: Option<String>,
+    created_at: DateTime<Utc>,
+    max_participants: i32,
+    is_active: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UserReport {
+    reporter_id: String,
+    reported_user_id: String,
+    report_type: String,
+    description: Option<String>,
+    room_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,15 +237,22 @@ async fn handle_websocket(ws: WebSocket, users: Users, waiting: WaitingUsers, ic
     users.write().await.insert(my_id.clone(), User {
         id: my_id.clone(),
         tx: user_tx,
+        status: UserStatus::Connected,
+        connected_at: std::time::SystemTime::now(),
+        message_count: 0,
+        last_message_time: std::time::SystemTime::now(),
+        message_timestamps: VecDeque::new(),
     });
 
     // Log connection
     eprintln!("User {} connected, total users: {}", my_id, users.read().await.len());
 
     let users_clone = users.clone();
+    let waiting_clone = waiting.clone();
     let my_id_clone = my_id.clone();
     let forward_messages = ws_rx.for_each(|msg| {
         let users = users_clone.clone();
+        let waiting = waiting_clone.clone();
         let my_id = my_id_clone.clone();
         async move {
             let msg = match msg {
@@ -174,7 +265,7 @@ async fn handle_websocket(ws: WebSocket, users: Users, waiting: WaitingUsers, ic
             };
 
             if let Ok(text) = msg.to_str() {
-                match process_message(text, users.clone(), my_id.clone()).await {
+                match process_message(text, users.clone(), waiting.clone(), my_id.clone()).await {
                     Ok(_) => {},
                     Err(e) => {
                         // Log the error with detailed information
@@ -239,10 +330,37 @@ async fn handle_websocket(ws: WebSocket, users: Users, waiting: WaitingUsers, ic
     eprintln!("Remaining users: {}", users.read().await.len());
 }
 
-async fn process_message(text: &str, users: Users, sender_id: String) -> Result<(), AppError> {
+async fn process_message(text: &str, users: Users, waiting: WaitingUsers, sender_id: String) -> Result<(), AppError> {
     // Check message size to prevent DoS attacks
     if text.len() > 16384 { // 16KB limit
         return Err(AppError::MessageTooLarge(format!("Message size {} exceeds limit", text.len())));
+    }
+    
+    // Rate limiting check
+    {
+        let mut users_map = users.write().await;
+        if let Some(user) = users_map.get_mut(&sender_id) {
+            let now = std::time::SystemTime::now();
+            
+            // Clean up old timestamps (older than 1 minute)
+            while let Some(&front_time) = user.message_timestamps.front() {
+                if now.duration_since(front_time).unwrap_or_default().as_secs() > 60 {
+                    user.message_timestamps.pop_front();
+                } else {
+                    break;
+                }
+            }
+            
+            // Check if user has exceeded rate limit (20 messages per minute)
+            if user.message_timestamps.len() >= 20 {
+                return Err(AppError::RateLimitExceeded(format!("Too many messages from user {}", sender_id)));
+            }
+            
+            // Add current timestamp
+            user.message_timestamps.push_back(now);
+            user.message_count += 1;
+            user.last_message_time = now;
+        }
     }
     
     // Parse the incoming message
@@ -251,12 +369,51 @@ async fn process_message(text: &str, users: Users, sender_id: String) -> Result<
     
     // Validate message type
     match rtc_msg.message_type.as_str() {
-        "offer" | "answer" | "ice-candidate" | "chat" => {}, // Valid types
+        "offer" | "answer" | "ice-candidate" | "chat" | "find-partner" | "partner-found" | "partner-left" => {}, // Valid types
         _ => return Err(AppError::InvalidMessageType(format!("Unsupported message type: {}", rtc_msg.message_type))),
+    }
+    
+    // Handle special messages that don't need a target
+    if rtc_msg.message_type == "find-partner" {
+        return handle_find_partner(users, waiting, sender_id).await;
     }
     
     // Add the source ID to the message
     rtc_msg.source = Some(sender_id.clone());
+    
+    // Special handling for chat messages - add timestamp and content filtering
+    if rtc_msg.message_type == "chat" {
+        // Content filtering for inappropriate content
+        if contains_inappropriate_content(&rtc_msg.data) {
+            return Err(AppError::PermissionDenied("Message contains inappropriate content".to_string()));
+        }
+        
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let chat_msg = ChatMessage {
+            message_type: "chat".to_string(),
+            content: rtc_msg.data.clone(),
+            timestamp,
+            source: Some(sender_id.clone()),
+        };
+        
+        let users_read = users.read().await;
+        let target_user = users_read.get(&rtc_msg.target)
+            .ok_or_else(|| AppError::TargetNotFound(format!("User {} not found", rtc_msg.target)))?;
+        
+        let chat_msg_str = serde_json::to_string(&chat_msg)
+            .map_err(|e| AppError::InternalError(format!("Failed to serialize chat message: {}", e)))?;
+        
+        eprintln!("Forwarding chat message from {} to {}", sender_id, rtc_msg.target);
+        
+        target_user.tx.send(Message::text(chat_msg_str))
+            .map_err(|e| AppError::ConnectionError(format!("Failed to send chat message: {}", e)))?;
+        
+        return Ok(());
+    }
     
     // Find the target user
     let users_read = users.read().await;
@@ -272,6 +429,74 @@ async fn process_message(text: &str, users: Users, sender_id: String) -> Result<
     
     target_user.tx.send(Message::text(forwarded_msg))
         .map_err(|e| AppError::ConnectionError(format!("Failed to send message: {}", e)))?;
+    
+    Ok(())
+}
+
+async fn handle_find_partner(users: Users, waiting: WaitingUsers, user_id: String) -> Result<(), AppError> {
+    let mut waiting_users = waiting.write().await;
+    let mut users_map = users.write().await;
+    
+    // Update user status to waiting
+    if let Some(user) = users_map.get_mut(&user_id) {
+        user.status = UserStatus::Waiting;
+    }
+    
+    // Check if there's someone already waiting
+    if let Some(partner_id) = waiting_users.pop() {
+        if partner_id != user_id {
+            // Found a partner! Update both users' status
+            if let Some(user) = users_map.get_mut(&user_id) {
+                user.status = UserStatus::InCall(partner_id.clone());
+            }
+            if let Some(partner) = users_map.get_mut(&partner_id) {
+                partner.status = UserStatus::InCall(user_id.clone());
+            }
+            
+            // Notify both users they found a partner
+            let partner_found_msg = serde_json::json!({
+                "message_type": "partner-found",
+                "partner_id": partner_id,
+                "data": "Partner found! Starting call..."
+            }).to_string();
+            
+            let user_found_msg = serde_json::json!({
+                "message_type": "partner-found", 
+                "partner_id": user_id,
+                "data": "Partner found! Starting call..."
+            }).to_string();
+            
+            // Send to current user
+            if let Some(user) = users_map.get(&user_id) {
+                let _ = user.tx.send(Message::text(partner_found_msg));
+            }
+            
+            // Send to partner
+            if let Some(partner) = users_map.get(&partner_id) {
+                let _ = partner.tx.send(Message::text(user_found_msg));
+            }
+            
+            eprintln!("Matched users {} and {}", user_id, partner_id);
+        } else {
+            // Same user, add back to queue
+            waiting_users.push(user_id);
+        }
+    } else {
+        // No one waiting, add this user to queue
+        waiting_users.push(user_id.clone());
+        
+        // Send waiting message
+        if let Some(user) = users_map.get(&user_id) {
+            let waiting_msg = serde_json::json!({
+                "message_type": "waiting",
+                "data": format!("Looking for a partner... {} users in queue", waiting_users.len())
+            }).to_string();
+            
+            let _ = user.tx.send(Message::text(waiting_msg));
+        }
+        
+        eprintln!("User {} added to waiting queue. Queue size: {}", user_id, waiting_users.len());
+    }
     
     Ok(())
 }
@@ -323,6 +548,285 @@ async fn handle_rejection(err: Rejection) -> Result<impl Reply, Rejection> {
     Ok(warp::reply::with_status(json, status_code))
 }
 
+fn contains_inappropriate_content(message: &str) -> bool {
+    let message_lower = message.to_lowercase();
+    let inappropriate_words = [
+        // Basic profanity filter - in production, use a comprehensive service
+        "spam", "scam", "viagra", "casino", "bitcoin", "crypto", "investment",
+        // Add more words as needed - this is a minimal example
+    ];
+    
+    for word in inappropriate_words.iter() {
+        if message_lower.contains(word) {
+            return true;
+        }
+    }
+    
+    // Check for excessive caps (> 80% uppercase)
+    let caps_count = message.chars().filter(|c| c.is_uppercase()).count();
+    let total_letters = message.chars().filter(|c| c.is_alphabetic()).count();
+    
+    if total_letters > 5 && caps_count as f32 / total_letters as f32 > 0.8 {
+        return true;
+    }
+    
+    // Check for excessive repeated characters
+    let mut prev_char = '\0';
+    let mut repeat_count = 1;
+    for ch in message.chars() {
+        if ch == prev_char {
+            repeat_count += 1;
+            if repeat_count > 4 { // More than 4 repeated characters
+                return true;
+            }
+        } else {
+            repeat_count = 1;
+        }
+        prev_char = ch;
+    }
+    
+    false
+}
+
+// Database functions
+async fn init_database() -> Result<SqlitePool, sqlx::Error> {
+    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:chat.db".to_string());
+    let pool = SqlitePool::connect(&database_url).await?;
+    
+    // Create tables directly since we don't have migrations set up
+    // sqlx::migrate!("./migrations").run(&pool).await.unwrap_or_else(|e| {
+    //     eprintln!("Failed to run migrations, creating tables manually: {}", e);
+    // });
+    
+    // Create tables if they don't exist
+    let schema = include_str!("../schema.sql");
+    for statement in schema.split(';') {
+        let statement = statement.trim();
+        if !statement.is_empty() {
+            sqlx::query(statement).execute(&pool).await.unwrap_or_else(|e| {
+                eprintln!("Failed to execute schema statement: {}", e);
+                std::process::exit(1);
+            });
+        }
+    }
+    
+    Ok(pool)
+}
+
+async fn create_user(pool: &SqlitePool, registration: UserRegistration) -> Result<DbUser, AppError> {
+    // Check if username or email already exists
+    let existing = sqlx::query("SELECT id FROM users WHERE username = ? OR email = ?")
+        .bind(&registration.username)
+        .bind(&registration.email)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
+    
+    if existing.is_some() {
+        return Err(AppError::AuthenticationError("Username or email already exists".to_string()));
+    }
+    
+    // Hash password
+    let password_hash = hash(registration.password, DEFAULT_COST)
+        .map_err(|e| AppError::InternalError(format!("Password hashing error: {}", e)))?;
+    
+    let user_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    
+    // Insert user
+    sqlx::query(
+        r#"
+        INSERT INTO users (id, username, email, password_hash, display_name, created_at, is_active, is_admin)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        "#
+    )
+    .bind(&user_id)
+    .bind(&registration.username)
+    .bind(&registration.email)
+    .bind(&password_hash)
+    .bind(&registration.display_name)
+    .bind(&now)
+    .bind(true)
+    .bind(false)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::InternalError(format!("Failed to create user: {}", e)))?;
+    
+    Ok(DbUser {
+        id: user_id,
+        username: registration.username,
+        email: registration.email,
+        display_name: registration.display_name,
+        created_at: now,
+        last_login: None,
+        is_active: true,
+        is_admin: false,
+        preferences: None,
+    })
+}
+
+async fn authenticate_user(pool: &SqlitePool, login: UserLogin) -> Result<DbUser, AppError> {
+    let user = sqlx::query("SELECT id, username, email, password_hash, display_name, created_at, last_login, is_active, is_admin, preferences FROM users WHERE username = ? AND is_active = TRUE")
+        .bind(&login.username)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
+    
+    let user = user.ok_or_else(|| AppError::AuthenticationError("Invalid username or password".to_string()))?;
+    
+    // Extract values from row
+    let user_id: String = user.get("id");
+    let username: String = user.get("username");
+    let email: String = user.get("email");
+    let password_hash: String = user.get("password_hash");
+    let display_name: Option<String> = user.get("display_name");
+    let created_at: DateTime<Utc> = user.get("created_at");
+    let last_login: Option<DateTime<Utc>> = user.get("last_login");
+    let is_active: bool = user.get("is_active");
+    let is_admin: bool = user.get("is_admin");
+    let preferences: Option<String> = user.get("preferences");
+    
+    // Verify password
+    if !verify(login.password, &password_hash)
+        .map_err(|e| AppError::InternalError(format!("Password verification error: {}", e)))? {
+        return Err(AppError::AuthenticationError("Invalid username or password".to_string()));
+    }
+    
+    // Update last login
+    let now = Utc::now();
+    sqlx::query("UPDATE users SET last_login = ? WHERE id = ?")
+        .bind(&now)
+        .bind(&user_id)
+        .execute(pool)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Failed to update last login: {}", e)))?;
+    
+    Ok(DbUser {
+        id: user_id,
+        username,
+        email,
+        display_name,
+        created_at,
+        last_login: Some(now),
+        is_active,
+        is_admin,
+        preferences,
+    })
+}
+
+async fn get_user_by_id(pool: &SqlitePool, user_id: &str) -> Result<Option<DbUser>, AppError> {
+    let user = sqlx::query("SELECT id, username, email, display_name, created_at, last_login, is_active, is_admin, preferences FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| AppError::InternalError(format!("Database error: {}", e)))?;
+    
+    Ok(user.map(|u| DbUser {
+        id: u.get("id"),
+        username: u.get("username"),
+        email: u.get("email"),
+        display_name: u.get("display_name"),
+        created_at: u.get("created_at"),
+        last_login: u.get("last_login"),
+        is_active: u.get("is_active"),
+        is_admin: u.get("is_admin"),
+        preferences: u.get("preferences"),
+    }))
+}
+
+fn generate_jwt_token(user: &DbUser) -> Result<String, AppError> {
+    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
+    let expiration = Utc::now()
+        .checked_add_signed(chrono::Duration::days(7))
+        .expect("valid timestamp")
+        .timestamp() as usize;
+    
+    let claims = Claims {
+        sub: user.id.clone(),
+        username: user.username.clone(),
+        exp: expiration,
+        iat: Utc::now().timestamp() as usize,
+    };
+    
+    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_ref()))
+        .map_err(|e| AppError::InternalError(format!("JWT generation error: {}", e)))
+}
+
+fn verify_jwt_token(token: &str) -> Result<Claims, AppError> {
+    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "your-secret-key".to_string());
+    let validation = Validation::new(Algorithm::HS256);
+    
+    decode::<Claims>(token, &DecodingKey::from_secret(secret.as_ref()), &validation)
+        .map(|data| data.claims)
+        .map_err(|e| AppError::AuthenticationError(format!("Invalid token: {}", e)))
+}
+
+async fn create_room(pool: &SqlitePool, created_by: &str, room_type: &str, name: Option<String>) -> Result<Room, AppError> {
+    let room_id = Uuid::new_v4().to_string();
+    let invite_code = if room_type == "private" {
+        Some(generate_invite_code())
+    } else {
+        None
+    };
+    let now = Utc::now();
+    
+    sqlx::query(
+        "INSERT INTO rooms (id, name, room_type, invite_code, created_by, created_at, max_participants, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&room_id)
+    .bind(&name)
+    .bind(room_type)
+    .bind(&invite_code)
+    .bind(created_by)
+    .bind(&now)
+    .bind(2)
+    .bind(true)
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::InternalError(format!("Failed to create room: {}", e)))?;
+    
+    Ok(Room {
+        id: room_id,
+        name,
+        room_type: room_type.to_string(),
+        invite_code,
+        created_by: Some(created_by.to_string()),
+        created_at: now,
+        max_participants: 2,
+        is_active: true,
+    })
+}
+
+fn generate_invite_code() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let code: String = (0..6)
+        .map(|_| rng.gen_range(0..10).to_string())
+        .collect();
+    code
+}
+
+async fn create_user_report(pool: &SqlitePool, report: UserReport) -> Result<(), AppError> {
+    let report_id = Uuid::new_v4().to_string();
+    
+    sqlx::query(
+        "INSERT INTO user_reports (id, reporter_id, reported_user_id, report_type, description, room_id, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&report_id)
+    .bind(&report.reporter_id)
+    .bind(&report.reported_user_id)
+    .bind(&report.report_type)
+    .bind(&report.description)
+    .bind(&report.room_id)
+    .bind(Utc::now())
+    .bind("pending")
+    .execute(pool)
+    .await
+    .map_err(|e| AppError::InternalError(format!("Failed to create report: {}", e)))?;
+    
+    Ok(())
+}
+
 // Generate time-limited TURN credentials
 fn generate_turn_credentials() -> (String, String) {
     // Default username is just a random string
@@ -339,6 +843,10 @@ fn generate_turn_credentials() -> (String, String) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize database
+    let pool = init_database().await?;
+    let db = Database::new(pool);
+    
     // Initialize shared state
     let users = Users::default();
     let waiting = WaitingUsers::default();
@@ -403,6 +911,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let users = warp::any().map(move || users.clone());
     let waiting = warp::any().map(move || waiting.clone());
     let ice_servers_filter = warp::any().map(move || ice_servers.clone());
+    let db_filter = warp::any().map(move || db.clone());
 
     // WebSocket route with error handling
     let websocket = warp::path("ws")
@@ -432,7 +941,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Static files route
     let static_files = warp::path::end()
         .and(warp::fs::file("static/index.html"))
+        .or(warp::path("login.html").and(warp::fs::file("static/login.html")))
         .or(warp::path("static").and(warp::fs::dir("static")));
+
+    // Authentication routes
+    let register = warp::path("api")
+        .and(warp::path("register"))
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(db_filter.clone())
+        .and_then(handle_register);
+
+    let login = warp::path("api")
+        .and(warp::path("login"))
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(db_filter.clone())
+        .and_then(handle_login);
+
+    let profile = warp::path("api")
+        .and(warp::path("profile"))
+        .and(warp::get())
+        .and(warp::header::<String>("authorization"))
+        .and(db_filter.clone())
+        .and_then(handle_profile);
+
+    let report_user = warp::path("api")
+        .and(warp::path("report"))
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(warp::header::<String>("authorization"))
+        .and(db_filter.clone())
+        .and_then(handle_report);
 
     // Health check endpoint
     let health = warp::path("health")
@@ -445,8 +985,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Combine all routes
     let routes = websocket
         .or(static_files)
+        .or(register)
+        .or(login)
+        .or(profile)
+        .or(report_user)
         .or(health)
-        .with(warp::cors().allow_any_origin())
+        .with(warp::cors().allow_any_origin().allow_headers(vec!["authorization", "content-type"]).allow_methods(vec!["GET", "POST", "PUT", "DELETE"]))
         .recover(handle_rejection);
 
     // Start the server
@@ -461,4 +1005,91 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     warp::serve(routes).run(addr).await;
     
     Ok(())
+}
+
+// Authentication route handlers
+async fn handle_register(registration: UserRegistration, db: Database) -> Result<impl warp::Reply, warp::Rejection> {
+    match create_user(&db, registration).await {
+        Ok(user) => {
+            let token = generate_jwt_token(&user)?;
+            let response = serde_json::json!({
+                "success": true,
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "display_name": user.display_name
+                },
+                "token": token
+            });
+            Ok(warp::reply::json(&response))
+        }
+        Err(e) => Err(warp::reject::custom(e))
+    }
+}
+
+async fn handle_login(login: UserLogin, db: Database) -> Result<impl warp::Reply, warp::Rejection> {
+    match authenticate_user(&db, login).await {
+        Ok(user) => {
+            let token = generate_jwt_token(&user)?;
+            let response = serde_json::json!({
+                "success": true,
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "display_name": user.display_name
+                },
+                "token": token
+            });
+            Ok(warp::reply::json(&response))
+        }
+        Err(e) => Err(warp::reject::custom(e))
+    }
+}
+
+async fn handle_profile(auth_header: String, db: Database) -> Result<impl warp::Reply, warp::Rejection> {
+    let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+        warp::reject::custom(AppError::AuthenticationError("Invalid authorization header".to_string()))
+    })?;
+    
+    let claims = verify_jwt_token(token)?;
+    
+    match get_user_by_id(&db, &claims.sub).await? {
+        Some(user) => {
+            let response = serde_json::json!({
+                "success": true,
+                "user": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "display_name": user.display_name,
+                    "created_at": user.created_at,
+                    "last_login": user.last_login,
+                    "preferences": user.preferences
+                }
+            });
+            Ok(warp::reply::json(&response))
+        }
+        None => Err(warp::reject::custom(AppError::AuthenticationError("User not found".to_string())))
+    }
+}
+
+async fn handle_report(report: UserReport, auth_header: String, db: Database) -> Result<impl warp::Reply, warp::Rejection> {
+    let token = auth_header.strip_prefix("Bearer ").ok_or_else(|| {
+        warp::reject::custom(AppError::AuthenticationError("Invalid authorization header".to_string()))
+    })?;
+    
+    let claims = verify_jwt_token(token)?;
+    
+    let mut report = report;
+    report.reporter_id = claims.sub;
+    
+    create_user_report(&db, report).await?;
+    
+    let response = serde_json::json!({
+        "success": true,
+        "message": "Report submitted successfully"
+    });
+    Ok(warp::reply::json(&response))
 }
