@@ -3,10 +3,35 @@
 <html>
 <head>
     <title>Random Video Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Professional WebRTC video chat application with user authentication and advanced features">
+    <meta name="theme-color" content="#667eea">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="VideoChat">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/180x180/667eea/ffffff?text=VC">
     <style>
         body { margin: 0; font-family: Arial, sans-serif; background: #f0f0f0; }
         .container { max-width: 900px; margin: 20px auto; text-align: center; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         #localVideo, #remoteVideo { width: 350px; height: 250px; background: #333; margin: 10px; border-radius: 8px; }
+        
+        /* Mobile optimizations */
+        @media (max-width: 768px) {
+            .container { margin: 10px; padding: 15px; max-width: none; }
+            #localVideo, #remoteVideo { width: 280px; height: 200px; margin: 5px; }
+            #videoControls { flex-wrap: wrap; gap: 5px; }
+            #videoControls button { padding: 6px 10px; font-size: 12px; }
+            #chatArea { max-width: 300px; }
+            #chatMessages { height: 120px; }
+            .auth-container { margin: 10px; }
+        }
+        
+        @media (max-width: 480px) {
+            #localVideo, #remoteVideo { width: 240px; height: 160px; }
+            h1 { font-size: 1.5em; }
+            #videoControls button { padding: 5px 8px; font-size: 11px; }
+        }
         #startButton, #cancelButton, #nextButton, #sendButton { 
             padding: 10px 20px; font-size: 16px; cursor: pointer; margin: 5px;
             background: #4CAF50; color: white; border: none; border-radius: 5px;
@@ -55,6 +80,36 @@
         .quality-excellent { color: #28a745; }
         .quality-good { color: #ffc107; }
         .quality-poor { color: #dc3545; }
+        
+        /* Recording controls */
+        .recording-controls {
+            display: flex; gap: 5px; align-items: center;
+        }
+        .recording-indicator {
+            width: 10px; height: 10px; background: #dc3545; 
+            border-radius: 50%; animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .screenshot-preview {
+            position: fixed; top: 20px; right: 20px; width: 200px; height: 150px;
+            border: 2px solid #007bff; border-radius: 8px; background: white;
+            z-index: 1000; display: none; flex-direction: column; align-items: center;
+            padding: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .screenshot-preview img {
+            max-width: 100%; max-height: 100px; border-radius: 4px;
+        }
+        .screenshot-actions {
+            margin-top: 10px; display: flex; gap: 5px;
+        }
+        .screenshot-actions button {
+            padding: 4px 8px; font-size: 10px; border: none; border-radius: 3px;
+            cursor: pointer; background: #007bff; color: white;
+        }
     </style>
 </head>
 <body>
@@ -67,6 +122,8 @@
         <div id="connectionStatus">Not connected</div>
         <div id="preferences" style="margin: 10px 0;">
             <button id="settingsButton">⚙️ Settings</button>
+            <button id="createRoomButton">🏠 Create Private Room</button>
+            <button id="joinRoomButton">🔑 Join Room</button>
         </div>
         <div id="settingsModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000;">
             <h3>Settings</h3>
@@ -85,6 +142,45 @@
             </div>
         </div>
         <div id="settingsOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999;"></div>
+        
+        <!-- Room Creation Modal -->
+        <div id="roomModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000;">
+            <h3>Create Private Room</h3>
+            <div>
+                <label>Room Name (Optional): 
+                    <input type="text" id="roomName" placeholder="My Private Room" style="width: 100%; margin: 10px 0; padding: 8px;">
+                </label><br>
+                <label>Room Type: 
+                    <select id="roomType" style="width: 100%; margin: 10px 0; padding: 8px;">
+                        <option value="private">Private (Invite Code Required)</option>
+                        <option value="public">Public (Anyone Can Join)</option>
+                    </select>
+                </label><br><br>
+                <button id="createRoomConfirm">Create Room</button>
+                <button id="closeRoomModal">Cancel</button>
+            </div>
+        </div>
+        
+        <!-- Join Room Modal -->
+        <div id="joinRoomModal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); z-index: 1000;">
+            <h3>Join Private Room</h3>
+            <div>
+                <label>Invite Code: 
+                    <input type="text" id="inviteCode" placeholder="123456" style="width: 100%; margin: 10px 0; padding: 8px;" maxlength="6">
+                </label><br><br>
+                <button id="joinRoomConfirm">Join Room</button>
+                <button id="closeJoinRoomModal">Cancel</button>
+            </div>
+        </div>
+        
+        <!-- Room Info Display -->
+        <div id="roomInfo" style="display: none; background: #e3f2fd; padding: 10px; border-radius: 5px; margin: 10px 0;">
+            <div>🏠 Room: <span id="currentRoomName">-</span></div>
+            <div>🔑 Invite Code: <span id="currentInviteCode">-</span></div>
+            <button id="leaveRoomButton" style="margin-top: 5px; background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px;">Leave Room</button>
+        </div>
+        
+        <div id="roomOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 999;"></div>
         <button id="startButton">Start New Chat</button>
         <div id="waitingRoom" style="display: none;">
             <h2>Looking for a partner...</h2>
@@ -96,6 +192,11 @@
                 <button id="toggleVideo">📹 Video</button>
                 <button id="toggleAudio">🎤 Audio</button>
                 <button id="shareScreen">📺 Share Screen</button>
+                <div class="recording-controls">
+                    <button id="recordButton">🔴 Record</button>
+                    <button id="screenshotButton">📸 Screenshot</button>
+                    <div id="recordingIndicator" class="recording-indicator" style="display: none;"></div>
+                </div>
                 <div id="connectionQuality">📶 Quality: <span id="qualityStatus">Unknown</span></div>
             </div>
             <video id="localVideo" autoplay muted playsinline></video>
@@ -111,6 +212,16 @@
             </div>
         </div>
         <div id="error" style="display: none; color: red; margin: 10px 0;"></div>
+    </div>
+    
+    <!-- Screenshot preview -->
+    <div id="screenshotPreview" class="screenshot-preview">
+        <img id="screenshotImage" src="" alt="Screenshot">
+        <div class="screenshot-actions">
+            <button id="downloadScreenshot">📥 Download</button>
+            <button id="shareScreenshot">📤 Share</button>
+            <button id="closeScreenshot">❌ Close</button>
+        </div>
     </div>
     <script>
         const ws = new WebSocket(`ws://${window.location.host}/ws`);
@@ -131,6 +242,18 @@
         };
         let currentUser = null;
         let authToken = null;
+        let currentRoom = null;
+        let isInPrivateRoom = false;
+        let reconnectionAttempts = 0;
+        let maxReconnectionAttempts = 5;
+        let reconnectionDelay = 1000; // Start with 1 second
+        let reconnectionTimer = null;
+        
+        // Recording and screenshot variables
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let recordingStartTime = null;
         
         function displayError(message, code) {
             const errorDiv = document.getElementById('error');
@@ -180,16 +303,92 @@
         let connectionAttempts = 0;
         const MAX_CONNECTION_ATTEMPTS = 3;
         
-        // WebSocket connection error handling
+        // WebSocket connection error handling with reconnection
         ws.onerror = function(error) {
-            displayError('WebSocket connection failed');
+            console.error('WebSocket error:', error);
+            updateConnectionStatus('Connection error - attempting to reconnect...');
+            scheduleReconnection();
         };
         
         ws.onclose = function(event) {
+            console.log('WebSocket closed:', event.code, event.reason);
             if (!event.wasClean) {
-                displayError('WebSocket connection closed unexpectedly');
+                updateConnectionStatus('Connection lost - reconnecting...');
+                scheduleReconnection();
             }
         };
+        
+        ws.onopen = function(event) {
+            console.log('WebSocket connected');
+            reconnectionAttempts = 0;
+            reconnectionDelay = 1000;
+            if (reconnectionTimer) {
+                clearTimeout(reconnectionTimer);
+                reconnectionTimer = null;
+            }
+        };
+        
+        function scheduleReconnection() {
+            if (reconnectionTimer) {
+                clearTimeout(reconnectionTimer);
+            }
+            
+            if (reconnectionAttempts >= maxReconnectionAttempts) {
+                updateConnectionStatus('Connection failed - please refresh the page');
+                displayError('Unable to maintain connection. Please refresh the page to continue.');
+                return;
+            }
+            
+            reconnectionAttempts++;
+            const delay = Math.min(reconnectionDelay * Math.pow(2, reconnectionAttempts - 1), 30000); // Max 30 seconds
+            
+            updateConnectionStatus(`Reconnecting in ${Math.ceil(delay / 1000)} seconds... (${reconnectionAttempts}/${maxReconnectionAttempts})`);
+            
+            reconnectionTimer = setTimeout(() => {
+                attemptReconnection();
+            }, delay);
+        }
+        
+        function attemptReconnection() {
+            console.log(`Attempting reconnection ${reconnectionAttempts}/${maxReconnectionAttempts}`);
+            updateConnectionStatus('Attempting to reconnect...');
+            
+            // Create new WebSocket connection
+            const newWs = new WebSocket(`ws://${window.location.host}/ws`);
+            
+            newWs.onopen = function(event) {
+                console.log('Reconnection successful');
+                updateConnectionStatus('Reconnected successfully');
+                
+                // Replace the old WebSocket
+                ws.onopen = newWs.onopen;
+                ws.onmessage = newWs.onmessage;
+                ws.onerror = newWs.onerror;
+                ws.onclose = newWs.onclose;
+                
+                // Reset reconnection state
+                reconnectionAttempts = 0;
+                reconnectionDelay = 1000;
+                
+                // Re-authenticate if needed
+                if (currentUser) {
+                    updateConnectionStatus(`Reconnected as ${currentUser.display_name || currentUser.username}`);
+                }
+            };
+            
+            newWs.onerror = function(error) {
+                console.error('Reconnection failed:', error);
+                scheduleReconnection();
+            };
+            
+            newWs.onclose = function(event) {
+                if (!event.wasClean && reconnectionAttempts < maxReconnectionAttempts) {
+                    scheduleReconnection();
+                }
+            };
+            
+            newWs.onmessage = ws.onmessage; // Use the same message handler
+        }
 
         function updateConnectionStatus(status) {
             document.getElementById('connectionStatus').textContent = status;
@@ -794,6 +993,421 @@
                 alert('No user to report');
             }
         };
+        
+        // Room management functions
+        function openRoomModal() {
+            document.getElementById('roomOverlay').style.display = 'block';
+            document.getElementById('roomModal').style.display = 'block';
+        }
+        
+        function closeRoomModal() {
+            document.getElementById('roomOverlay').style.display = 'none';
+            document.getElementById('roomModal').style.display = 'none';
+        }
+        
+        function openJoinRoomModal() {
+            document.getElementById('roomOverlay').style.display = 'block';
+            document.getElementById('joinRoomModal').style.display = 'block';
+        }
+        
+        function closeJoinRoomModal() {
+            document.getElementById('roomOverlay').style.display = 'none';
+            document.getElementById('joinRoomModal').style.display = 'none';
+        }
+        
+        async function createRoom() {
+            if (!authToken) {
+                displayError('You must be logged in to create rooms');
+                return;
+            }
+            
+            const roomName = document.getElementById('roomName').value.trim() || null;
+            const roomType = document.getElementById('roomType').value;
+            
+            try {
+                const response = await fetch('/api/rooms', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        name: roomName,
+                        room_type: roomType
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    currentRoom = result.room;
+                    isInPrivateRoom = true;
+                    
+                    // Update UI
+                    document.getElementById('currentRoomName').textContent = currentRoom.name || 'Unnamed Room';
+                    document.getElementById('currentInviteCode').textContent = currentRoom.invite_code || 'N/A';
+                    document.getElementById('roomInfo').style.display = 'block';
+                    
+                    closeRoomModal();
+                    
+                    if (currentRoom.invite_code) {
+                        alert(`Room created! Invite code: ${currentRoom.invite_code}\nShare this code with others to join your room.`);
+                    }
+                    
+                    // Start waiting for someone to join
+                    updateConnectionStatus('Waiting for someone to join your room...');
+                } else {
+                    displayError(result.error || 'Failed to create room');
+                }
+            } catch (error) {
+                displayError('Error creating room');
+                console.error('Room creation error:', error);
+            }
+        }
+        
+        async function joinRoom() {
+            if (!authToken) {
+                displayError('You must be logged in to join rooms');
+                return;
+            }
+            
+            const inviteCode = document.getElementById('inviteCode').value.trim();
+            if (!inviteCode) {
+                displayError('Please enter an invite code');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/rooms/join', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        invite_code: inviteCode
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    currentRoom = result.room;
+                    isInPrivateRoom = true;
+                    
+                    // Update UI
+                    document.getElementById('currentRoomName').textContent = currentRoom.name || 'Unnamed Room';
+                    document.getElementById('currentInviteCode').textContent = currentRoom.invite_code || 'N/A';
+                    document.getElementById('roomInfo').style.display = 'block';
+                    
+                    closeJoinRoomModal();
+                    updateConnectionStatus('Joined room successfully!');
+                    
+                    // Start looking for media access
+                    startChat();
+                } else {
+                    displayError(result.error || 'Failed to join room');
+                }
+            } catch (error) {
+                displayError('Error joining room');
+                console.error('Room join error:', error);
+            }
+        }
+        
+        function leaveRoom() {
+            currentRoom = null;
+            isInPrivateRoom = false;
+            document.getElementById('roomInfo').style.display = 'none';
+            updateConnectionStatus('Left room');
+            
+            // End current call if in progress
+            if (peerConnection) {
+                peerConnection.close();
+            }
+            hideVideoArea();
+            partnerId = null;
+        }
+        
+        // Event listeners for room management
+        document.getElementById('createRoomButton').onclick = openRoomModal;
+        document.getElementById('joinRoomButton').onclick = openJoinRoomModal;
+        document.getElementById('createRoomConfirm').onclick = createRoom;
+        document.getElementById('joinRoomConfirm').onclick = joinRoom;
+        document.getElementById('closeRoomModal').onclick = closeRoomModal;
+        document.getElementById('closeJoinRoomModal').onclick = closeJoinRoomModal;
+        document.getElementById('leaveRoomButton').onclick = leaveRoom;
+        document.getElementById('roomOverlay').onclick = function(e) {
+            if (e.target === document.getElementById('roomOverlay')) {
+                closeRoomModal();
+                closeJoinRoomModal();
+            }
+        };
+        
+        // Recording and Screenshot Functions
+        function setupRecordingControls() {
+            document.getElementById('recordButton').onclick = toggleRecording;
+            document.getElementById('screenshotButton').onclick = takeScreenshot;
+            document.getElementById('downloadScreenshot').onclick = downloadScreenshot;
+            document.getElementById('shareScreenshot').onclick = shareScreenshot;
+            document.getElementById('closeScreenshot').onclick = closeScreenshotPreview;
+        }
+        
+        function toggleRecording() {
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+        
+        function startRecording() {
+            if (!localStream && !remoteVideo.srcObject) {
+                displayError('No video stream available for recording');
+                return;
+            }
+            
+            try {
+                // Create a canvas to combine both video streams
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const localVideo = document.getElementById('localVideo');
+                const remoteVideo = document.getElementById('remoteVideo');
+                
+                // Set canvas size based on video dimensions
+                canvas.width = 1280;
+                canvas.height = 720;
+                
+                // Create a stream from the canvas
+                const canvasStream = canvas.captureStream(30);
+                
+                // Draw both videos on canvas continuously
+                function drawFrame() {
+                    if (!isRecording) return;
+                    
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    
+                    // Draw remote video (main)
+                    if (remoteVideo.videoWidth > 0) {
+                        ctx.drawImage(remoteVideo, 0, 0, canvas.width, canvas.height);
+                    }
+                    
+                    // Draw local video (picture-in-picture)
+                    if (localVideo.videoWidth > 0) {
+                        const pipWidth = canvas.width * 0.25;
+                        const pipHeight = canvas.height * 0.25;
+                        const pipX = canvas.width - pipWidth - 20;
+                        const pipY = 20;
+                        
+                        ctx.drawImage(localVideo, pipX, pipY, pipWidth, pipHeight);
+                        
+                        // Add border to PiP
+                        ctx.strokeStyle = '#007bff';
+                        ctx.lineWidth = 3;
+                        ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
+                    }
+                    
+                    requestAnimationFrame(drawFrame);
+                }
+                
+                // Start drawing frames
+                drawFrame();
+                
+                // Configure MediaRecorder
+                const options = {
+                    mimeType: 'video/webm;codecs=vp9',
+                    videoBitsPerSecond: 2500000 // 2.5 Mbps
+                };
+                
+                // Fallback to vp8 if vp9 is not supported
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'video/webm;codecs=vp8';
+                }
+                
+                mediaRecorder = new MediaRecorder(canvasStream, options);
+                recordedChunks = [];
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = function() {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    downloadRecording(url, blob);
+                };
+                
+                mediaRecorder.start(1000); // Collect data every second
+                isRecording = true;
+                recordingStartTime = Date.now();
+                
+                // Update UI
+                document.getElementById('recordButton').textContent = '⏹️ Stop';
+                document.getElementById('recordingIndicator').style.display = 'block';
+                
+                updateConnectionStatus('Recording started');
+                
+            } catch (error) {
+                displayError('Failed to start recording: ' + error.message);
+                console.error('Recording error:', error);
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                
+                // Update UI
+                document.getElementById('recordButton').textContent = '🔴 Record';
+                document.getElementById('recordingIndicator').style.display = 'none';
+                
+                const duration = Math.round((Date.now() - recordingStartTime) / 1000);
+                updateConnectionStatus(`Recording stopped (${duration}s)`);
+            }
+        }
+        
+        function downloadRecording(url, blob) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `webrtc-recording-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.webm`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            // Show file size info
+            const sizeKB = Math.round(blob.size / 1024);
+            updateConnectionStatus(`Recording saved (${sizeKB} KB)`);
+        }
+        
+        function takeScreenshot() {
+            try {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const localVideo = document.getElementById('localVideo');
+                const remoteVideo = document.getElementById('remoteVideo');
+                
+                // Set canvas size
+                canvas.width = 1280;
+                canvas.height = 720;
+                
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw remote video (main)
+                if (remoteVideo.videoWidth > 0) {
+                    ctx.drawImage(remoteVideo, 0, 0, canvas.width, canvas.height);
+                }
+                
+                // Draw local video (picture-in-picture)
+                if (localVideo.videoWidth > 0) {
+                    const pipWidth = canvas.width * 0.25;
+                    const pipHeight = canvas.height * 0.25;
+                    const pipX = canvas.width - pipWidth - 20;
+                    const pipY = 20;
+                    
+                    ctx.drawImage(localVideo, pipX, pipY, pipWidth, pipHeight);
+                    
+                    // Add border to PiP
+                    ctx.strokeStyle = '#007bff';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
+                }
+                
+                // Add timestamp
+                ctx.fillStyle = '#fff';
+                ctx.font = '20px Arial';
+                ctx.fillText(new Date().toLocaleString(), 20, canvas.height - 20);
+                
+                // Convert to data URL and show preview
+                const dataURL = canvas.toDataURL('image/png');
+                showScreenshotPreview(dataURL);
+                
+                updateConnectionStatus('Screenshot captured');
+                
+            } catch (error) {
+                displayError('Failed to take screenshot: ' + error.message);
+                console.error('Screenshot error:', error);
+            }
+        }
+        
+        function showScreenshotPreview(dataURL) {
+            const preview = document.getElementById('screenshotPreview');
+            const img = document.getElementById('screenshotImage');
+            
+            img.src = dataURL;
+            preview.style.display = 'flex';
+            
+            // Store for download/share
+            preview.dataset.imageData = dataURL;
+        }
+        
+        function downloadScreenshot() {
+            const preview = document.getElementById('screenshotPreview');
+            const dataURL = preview.dataset.imageData;
+            
+            if (dataURL) {
+                const a = document.createElement('a');
+                a.href = dataURL;
+                a.download = `webrtc-screenshot-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                updateConnectionStatus('Screenshot downloaded');
+            }
+        }
+        
+        function shareScreenshot() {
+            const preview = document.getElementById('screenshotPreview');
+            const dataURL = preview.dataset.imageData;
+            
+            if (dataURL && navigator.share) {
+                // Convert data URL to blob
+                fetch(dataURL)
+                    .then(res => res.blob())
+                    .then(blob => {
+                        const file = new File([blob], 'screenshot.png', { type: 'image/png' });
+                        return navigator.share({
+                            title: 'WebRTC Video Chat Screenshot',
+                            files: [file]
+                        });
+                    })
+                    .then(() => updateConnectionStatus('Screenshot shared'))
+                    .catch(err => {
+                        console.error('Share failed:', err);
+                        // Fallback to copy to clipboard
+                        copyToClipboard(dataURL);
+                    });
+            } else {
+                // Fallback to copy to clipboard
+                copyToClipboard(dataURL);
+            }
+        }
+        
+        function copyToClipboard(dataURL) {
+            fetch(dataURL)
+                .then(res => res.blob())
+                .then(blob => {
+                    const item = new ClipboardItem({ 'image/png': blob });
+                    return navigator.clipboard.write([item]);
+                })
+                .then(() => updateConnectionStatus('Screenshot copied to clipboard'))
+                .catch(err => {
+                    console.error('Clipboard copy failed:', err);
+                    displayError('Failed to copy screenshot');
+                });
+        }
+        
+        function closeScreenshotPreview() {
+            const preview = document.getElementById('screenshotPreview');
+            preview.style.display = 'none';
+            delete preview.dataset.imageData;
+        }
+        
+        // Initialize recording controls when the page loads
+        setupRecordingControls();
         
         // Check authentication on page load
         if (!checkAuthentication()) {

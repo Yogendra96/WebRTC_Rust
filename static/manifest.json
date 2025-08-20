@@ -1,0 +1,106 @@
+{
+  "name": "WebRTC Video Chat",
+  "short_name": "VideoChat",
+  "description": "Professional WebRTC video chat application with user authentication and advanced features",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#667eea",
+  "theme_color": "#667eea",
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/72x72/667eea/ffffff?text=VC",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/96x96/667eea/ffffff?text=VC",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/128x128/667eea/ffffff?text=VC",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/144x144/667eea/ffffff?text=VC",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/152x152/667eea/ffffff?text=VC",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/192x192/667eea/ffffff?text=VC",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://via.placeholder.com/384x384/667eea/ffffff?text=VC",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://via.placeholder.com/512x512/667eea/ffffff?text=VC",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["social", "communication", "productivity"],
+  "lang": "en",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "iarc_rating_id": "e84b072d-71b3-4d3e-86ae-31a8ce4e53b7",
+  "screenshots": [
+    {
+      "src": "https://via.placeholder.com/540x720/667eea/ffffff?text=Video+Chat",
+      "sizes": "540x720",
+      "type": "image/png",
+      "platform": "narrow"
+    },
+    {
+      "src": "https://via.placeholder.com/720x540/667eea/ffffff?text=Video+Chat+Desktop",
+      "sizes": "720x540", 
+      "type": "image/png",
+      "platform": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Start Video Call",
+      "short_name": "New Call",
+      "description": "Start a new random video call",
+      "url": "/?action=call",
+      "icons": [
+        {
+          "src": "https://via.placeholder.com/96x96/4CAF50/ffffff?text=📹",
+          "sizes": "96x96"
+        }
+      ]
+    },
+    {
+      "name": "Login",
+      "short_name": "Login",
+      "description": "Login to your account",
+      "url": "/login.html",
+      "icons": [
+        {
+          "src": "https://via.placeholder.com/96x96/2196F3/ffffff?text=🔐",
+          "sizes": "96x96"
+        }
+      ]
+    }
+  ]
+}

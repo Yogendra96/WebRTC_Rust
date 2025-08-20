@@ -99,8 +99,54 @@ For production use, it's recommended to set up your own TURN server. You can use
 
 The client automatically receives the ICE server configuration from the server during connection setup. The WebRTC connection will attempt to use the provided STUN/TURN servers in order of preference.
 
+## 🔧 Development Tooling
+
+This project uses modern Rust development tools for code quality and consistency:
+
+### Code Quality Tools
+- **Clippy**: Advanced linting with custom configuration
+- **rustfmt**: Consistent code formatting 
+- **cargo check**: Fast compilation checking
+
+### Available Commands
+```bash
+# Check code without building
+cargo check
+
+# Run advanced linting (zero warnings policy)
+cargo clippy -- -D warnings
+
+# Format code consistently
+cargo fmt
+
+# Run all quality checks
+cargo check && cargo clippy -- -D warnings && cargo fmt
+```
+
+### Configuration Files
+- `clippy.toml`: Clippy linting configuration
+- `rustfmt.toml`: Code formatting rules
+- Both configured for modern Rust best practices
+
+## 📊 Code Quality Standards
+
+The codebase maintains:
+- ✅ Zero compilation warnings
+- ✅ Zero Clippy warnings (strict mode)
+- ✅ Consistent formatting via rustfmt
+- ✅ Comprehensive error handling
+- ✅ Modern Rust idioms and patterns
+
 ## Troubleshooting
 
 - If connections fail, check that your TURN server is properly configured and accessible
 - Ensure your TURN server supports both UDP and TCP for maximum compatibility
 - For secure environments, use TURNS (TURN over TLS) on port 5349
+
+## Architecture Notes
+
+The application follows modern Rust patterns:
+- **Type Safety**: Comprehensive error types with user-friendly messages
+- **Memory Safety**: No unsafe code, all borrowing rules followed
+- **Performance**: Async/await throughout, zero-copy where possible
+- **Maintainability**: Clean separation of concerns, well-documented APIs

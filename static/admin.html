@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Video Chat</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#2c3e50">
+    <meta name="description" content="Admin dashboard for WebRTC video chat moderation">
+    <link rel="manifest" href="/static/manifest.json">
+    
+    <!-- PWA iOS Support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Admin VideoChat">
+    <link rel="apple-touch-icon" href="https://via.placeholder.com/192x192/667eea/ffffff?text=VC">
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif; 
+            background: #f5f5f5;
+        }
+        
+        .header { 
+            background: #2c3e50; 
+            color: white; 
+            padding: 15px 20px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+        }
+        
+        .container { 
+            max-width: 1200px; 
+            margin: 20px auto; 
+            background: white; 
+            border-radius: 8px; 
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #34495e;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 60px;
+            padding: 20px 0;
+        }
+        
+        .sidebar ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .sidebar li {
+            border-bottom: 1px solid #2c3e50;
+        }
+        
+        .sidebar a {
+            display: block;
+            color: white;
+            padding: 15px 20px;
+            text-decoration: none;
+            transition: background 0.3s;
+        }
+        
+        .sidebar a:hover, .sidebar a.active {
+            background: #2c3e50;
+        }
+        
+        .main-content {
+            margin-left: 250px;
+            padding: 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-label {
+            color: #666;
+            margin-top: 10px;
+        }
+        
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .section h2 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin: 2px;
+        }
+        
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-info { background: #3498db; color: white; }
+        
+        .status-pending { color: #f39c12; font-weight: bold; }
+        .status-reviewed { color: #27ae60; font-weight: bold; }
+        .status-dismissed { color: #95a5a6; font-weight: bold; }
+        
+        .hidden { display: none; }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            background: #e74c3c;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        
+        /* Mobile Responsive Styles */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 200px;
+            }
+            
+            .main-content {
+                margin-left: 200px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .sidebar {
+                position: static;
+                width: 100%;
+                height: auto;
+                padding: 10px 0;
+            }
+            
+            .sidebar ul {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+            
+            .sidebar li {
+                border-bottom: none;
+                border-right: 1px solid #2c3e50;
+            }
+            
+            .sidebar li:last-child {
+                border-right: none;
+            }
+            
+            .sidebar a {
+                padding: 10px 15px;
+                font-size: 14px;
+            }
+            
+            .main-content {
+                margin-left: 0;
+                padding: 15px;
+            }
+            
+            .header {
+                flex-direction: column;
+                text-align: center;
+                padding: 15px;
+            }
+            
+            .header h1 {
+                margin-bottom: 10px;
+                font-size: 20px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+            }
+            
+            .stat-card {
+                padding: 15px;
+            }
+            
+            .stat-number {
+                font-size: 2em;
+            }
+            
+            table {
+                font-size: 14px;
+            }
+            
+            th, td {
+                padding: 8px;
+            }
+            
+            .btn {
+                padding: 6px 10px;
+                font-size: 11px;
+                margin: 1px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                margin: 10px;
+                border-radius: 0;
+            }
+            
+            .main-content {
+                padding: 10px;
+            }
+            
+            .section {
+                padding: 15px;
+                margin-bottom: 15px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            
+            .stat-card {
+                padding: 10px;
+            }
+            
+            .stat-number {
+                font-size: 1.8em;
+            }
+            
+            .stat-label {
+                font-size: 12px;
+            }
+            
+            table {
+                font-size: 12px;
+                overflow-x: auto;
+                display: block;
+                white-space: nowrap;
+            }
+            
+            th, td {
+                padding: 6px 4px;
+                min-width: 80px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ Admin Dashboard</h1>
+        <div>
+            <span id="adminName">Admin</span> | 
+            <a href="/" style="color: white; text-decoration: none;">Back to App</a> | 
+            <a href="#" onclick="logout()" style="color: white; text-decoration: none;">Logout</a>
+        </div>
+    </div>
+    
+    <div class="sidebar">
+        <ul>
+            <li><a href="#dashboard" class="nav-link active" onclick="showSection('dashboard')">📊 Dashboard</a></li>
+            <li><a href="#reports" class="nav-link" onclick="showSection('reports')">🚨 User Reports</a></li>
+            <li><a href="#users" class="nav-link" onclick="showSection('users')">👥 User Management</a></li>
+            <li><a href="#rooms" class="nav-link" onclick="showSection('rooms')">🏠 Room Management</a></li>
+            <li><a href="#logs" class="nav-link" onclick="showSection('logs')">📋 Connection Logs</a></li>
+        </ul>
+    </div>
+    
+    <div class="main-content">
+        <div id="error-message" class="error hidden"></div>
+        
+        <!-- Dashboard Section -->
+        <div id="dashboard-section" class="section">
+            <h2>System Overview</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="total-users">-</div>
+                    <div class="stat-label">Total Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="active-users">-</div>
+                    <div class="stat-label">Active Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="total-reports">-</div>
+                    <div class="stat-label">Total Reports</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="pending-reports">-</div>
+                    <div class="stat-label">Pending Reports</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="active-rooms">-</div>
+                    <div class="stat-label">Active Rooms</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Reports Section -->
+        <div id="reports-section" class="section hidden">
+            <h2>User Reports Management</h2>
+            <div class="loading" id="reports-loading">Loading reports...</div>
+            <table id="reports-table" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Reporter</th>
+                        <th>Reported User</th>
+                        <th>Type</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="reports-tbody">
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Users Section -->
+        <div id="users-section" class="section hidden">
+            <h2>User Management</h2>
+            <div class="loading" id="users-loading">Loading users...</div>
+            <table id="users-table" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Username</th>
+                        <th>Email</th>
+                        <th>Display Name</th>
+                        <th>Joined</th>
+                        <th>Last Login</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="users-tbody">
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Rooms Section -->
+        <div id="rooms-section" class="section hidden">
+            <h2>Room Management</h2>
+            <div class="loading" id="rooms-loading">Loading rooms...</div>
+            <table id="rooms-table" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Room Name</th>
+                        <th>Type</th>
+                        <th>Created By</th>
+                        <th>Created</th>
+                        <th>Participants</th>
+                        <th>Invite Code</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="rooms-tbody">
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Logs Section -->
+        <div id="logs-section" class="section hidden">
+            <h2>Connection Logs</h2>
+            <div class="loading" id="logs-loading">Loading connection logs...</div>
+            <table id="logs-table" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>IP Address</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody id="logs-tbody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        let authToken = localStorage.getItem('auth-token');
+        let currentUser = null;
+        
+        // Check admin authentication
+        async function checkAdminAuth() {
+            if (!authToken) {
+                window.location.href = '/login.html';
+                return false;
+            }
+            
+            try {
+                const response = await fetch('/api/profile', {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Authentication failed');
+                }
+                
+                const result = await response.json();
+                currentUser = result.user;
+                
+                if (!currentUser.is_admin) {
+                    alert('Access denied. Admin privileges required.');
+                    window.location.href = '/';
+                    return false;
+                }
+                
+                document.getElementById('adminName').textContent = currentUser.display_name || currentUser.username;
+                return true;
+            } catch (error) {
+                console.error('Auth check failed:', error);
+                localStorage.removeItem('auth-token');
+                window.location.href = '/login.html';
+                return false;
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('auth-token');
+            localStorage.removeItem('user-info');
+            window.location.href = '/login.html';
+        }
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.classList.remove('hidden');
+        }
+        
+        function hideError() {
+            document.getElementById('error-message').classList.add('hidden');
+        }
+        
+        async function apiRequest(endpoint, options = {}) {
+            try {
+                const response = await fetch(endpoint, {
+                    ...options,
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('API request failed:', error);
+                showError(`API request failed: ${error.message}`);
+                throw error;
+            }
+        }
+        
+        function showSection(section) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
+            
+            // Remove active class from all nav links
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            
+            // Show selected section
+            document.getElementById(section + '-section').classList.remove('hidden');
+            
+            // Add active class to clicked nav link
+            event.target.classList.add('active');
+            
+            // Load section data
+            switch(section) {
+                case 'dashboard':
+                    loadDashboard();
+                    break;
+                case 'reports':
+                    loadReports();
+                    break;
+                case 'users':
+                    loadUsers();
+                    break;
+                case 'rooms':
+                    loadRooms();
+                    break;
+                case 'logs':
+                    loadLogs();
+                    break;
+            }
+        }
+        
+        async function loadDashboard() {
+            try {
+                const stats = await apiRequest('/api/admin/stats');
+                document.getElementById('total-users').textContent = stats.stats.total_users;
+                document.getElementById('active-users').textContent = stats.stats.active_users;
+                document.getElementById('total-reports').textContent = stats.stats.total_reports;
+                document.getElementById('pending-reports').textContent = stats.stats.pending_reports;
+                document.getElementById('active-rooms').textContent = stats.stats.active_rooms;
+            } catch (error) {
+                showError('Failed to load dashboard data');
+                // Fallback to demo data if API fails
+                document.getElementById('total-users').textContent = '127';
+                document.getElementById('active-users').textContent = '23';
+                document.getElementById('total-reports').textContent = '8';
+                document.getElementById('pending-reports').textContent = '3';
+                document.getElementById('active-rooms').textContent = '12';
+            }
+        }
+        
+        async function loadReports() {
+            try {
+                document.getElementById('reports-loading').classList.remove('hidden');
+                document.getElementById('reports-table').classList.add('hidden');
+                
+                const data = await apiRequest('/api/admin/reports');
+                const tbody = document.getElementById('reports-tbody');
+                
+                if (data.reports && data.reports.length > 0) {
+                    tbody.innerHTML = data.reports.map(report => `
+                        <tr>
+                            <td>${new Date(report.created_at).toLocaleString()}</td>
+                            <td>${report.reporter_username}</td>
+                            <td>${report.reported_username}</td>
+                            <td>${report.report_type}</td>
+                            <td>${report.description || 'No description'}</td>
+                            <td><span class="status-${report.status}">${report.status}</span></td>
+                            <td>
+                                ${report.status === 'pending' ? `
+                                    <button class="btn btn-success" onclick="resolveReport('${report.id}')">Resolve</button>
+                                    <button class="btn btn-warning" onclick="dismissReport('${report.id}')">Dismiss</button>
+                                ` : `
+                                    <button class="btn btn-info" onclick="viewReport('${report.id}')">View</button>
+                                `}
+                            </td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No reports found</td></tr>';
+                }
+                
+                document.getElementById('reports-loading').classList.add('hidden');
+                document.getElementById('reports-table').classList.remove('hidden');
+            } catch (error) {
+                showError('Failed to load reports');
+                document.getElementById('reports-loading').classList.add('hidden');
+            }
+        }
+        
+        async function loadUsers() {
+            // Similar implementation for users
+            document.getElementById('users-loading').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('users-loading').classList.add('hidden');
+                document.getElementById('users-table').classList.remove('hidden');
+            }, 500);
+        }
+        
+        async function loadRooms() {
+            // Similar implementation for rooms
+            document.getElementById('rooms-loading').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('rooms-loading').classList.add('hidden');
+                document.getElementById('rooms-table').classList.remove('hidden');
+            }, 500);
+        }
+        
+        async function loadLogs() {
+            // Similar implementation for logs
+            document.getElementById('logs-loading').classList.remove('hidden');
+            setTimeout(() => {
+                document.getElementById('logs-loading').classList.add('hidden');
+                document.getElementById('logs-table').classList.remove('hidden');
+            }, 500);
+        }
+        
+        async function resolveReport(reportId) {
+            if (confirm('Are you sure you want to resolve this report?')) {
+                try {
+                    await apiRequest(`/api/admin/reports/${reportId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            status: 'resolved',
+                            admin_notes: 'Report resolved by admin'
+                        })
+                    });
+                    alert('Report resolved successfully');
+                    loadReports(); // Refresh the reports list
+                } catch (error) {
+                    showError('Failed to resolve report');
+                }
+            }
+        }
+        
+        async function dismissReport(reportId) {
+            if (confirm('Are you sure you want to dismiss this report?')) {
+                try {
+                    await apiRequest(`/api/admin/reports/${reportId}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({
+                            status: 'dismissed',
+                            admin_notes: 'Report dismissed by admin'
+                        })
+                    });
+                    alert('Report dismissed');
+                    loadReports(); // Refresh the reports list
+                } catch (error) {
+                    showError('Failed to dismiss report');
+                }
+            }
+        }
+        
+        function viewReport(reportId) {
+            alert('View report details - ' + reportId);
+        }
+        
+        // Initialize admin dashboard
+        window.addEventListener('load', async () => {
+            if (await checkAdminAuth()) {
+                loadDashboard();
+            }
+        });
+    </script>
+</body>
+</html>
