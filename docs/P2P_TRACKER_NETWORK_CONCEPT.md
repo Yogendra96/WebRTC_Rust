@@ -35,27 +35,31 @@ A two-layer network:
 - Leaf nodes are unaware of the backbone topology
 - Protocol-agnostic: backbone doesn't care what leaf nodes communicate with
 
-## Existing Tech That Gets Close
+## What's Missing Today — The Product Gap
 
-| Technology | What It Does | Gap |
-|------------|-------------|-----|
-| **libp2p** | DHT discovery, relay protocol, NAT traversal | Library, not a product. No incentive layer for relay nodes. |
-| **Nostr** | Relays store/forward messages. Anyone runs a relay. | Relays don't form a backbone mesh. Text-first, not general P2P. |
-| **Matrix** | Federated homeservers with real-time sync | Designed for chat, not raw P2P traffic. Server-side routing is heavy. |
-| **Tor** | Onion routing with directory authorities | High latency, not suitable for real-time comms. |
-| **Holochain** | Agent-centric DHT with gossip | Niche ecosystem, not general-purpose. |
-| **LiveKit** | WebRTC SFU (Selective Forwarding Unit) | Centralized. No decentralized backbone. |
-| **Streamr** | Decentralized data streaming | Pub/sub only, not general P2P. |
+A **productized tracker-as-a-service** where:
+1. **Tracker nodes are incentivized** (via blockchain tokens or subscription) to form a high-speed relay backbone
+2. **Inter-tracker communication protocol** that's low-latency and supports arbitrary protocols (not just WebRTC)
+3. **Leaf nodes can seamlessly fallback** between multiple tracker nodes
 
-## What's Missing (the gap)
+## Closest Commercial Attempts
 
-A **shipped product** that combines:
-1. A decentralized backbone of tracker/relay nodes
-2. Inter-tracker communication protocol (low-latency, arbitrary protocol support)
-3. Leaf node multi-homing (connect to multiple backbone nodes)
-4. Incentive layer (blockchain tokens or subscription)
-5. Protocol-agnostic relay (not just WebRTC)
-6. No single party controls all traffic
+| Product | Approach | Why It's Not This |
+|---------|----------|-------------------|
+| **LiveKit** | WebRTC SFU (Selective Forwarding Unit) | Centralized, fast but no decentralized backbone |
+| **Streamr** | Decentralized data streaming | Pub/sub only, not designed for general P2P communication |
+| **Helium** | Decentralized wireless network | Different layer entirely (LoRaWAN / 5G infrastructure) |
+
+## The Gap
+
+No shipped product today combines:
+- Decentralized backbone of tracker/relay nodes
+- Inter-tracker communication (low-latency, protocol-agnostic)
+- Leaf node multi-homing
+- Incentive layer for backbone operators
+- No single party controls all traffic
+
+*Note: libp2p gets closest architecturally (DHT + mDNS + Rendezvous + Relay protocol) — and was used in production for the Distributed AI Inference Cluster project — but it's a library/framework, not a product.*
 
 ## To Explore Further
 
