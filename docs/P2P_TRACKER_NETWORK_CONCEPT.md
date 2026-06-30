@@ -61,6 +61,73 @@ No shipped product today combines:
 
 *Note: libp2p gets closest architecturally (DHT + mDNS + Rendezvous + Relay protocol) — and was used in production for the Distributed AI Inference Cluster project — but it's a library/framework, not a product.*
 
+## What We'd Need to Build This
+
+### Layer 0 — Backbone Node Software
+- A daemon that runs on any machine (VPS, home server, cloud)
+- Implements DHT-based discovery between backbone nodes
+- Implements relay protocol (forwarding traffic between leaf nodes, or between backbone nodes)
+- Implements NAT traversal (STUN, ICE, hole-punching)
+- Protocol-agnostic relay sockets (not just WebRTC — raw TCP/UDP tunnels)
+- Health/metrics reporting (latency, bandwidth, uptime)
+
+### Layer 1 — Backbone Coordination
+- How backbone nodes find each other (DHT? on-chain registry? bootstrap nodes?)
+- How they measure each other's reliability
+- How traffic is routed through the backbone mesh (shortest path, lowest latency)
+- How nodes join/leave without disrupting active connections
+
+### Layer 2 — Incentive Layer
+- If blockchain: smart contract tracking relayed bytes, uptime, latency
+- If subscription: tiered access (free tier limits, paid priority)
+- Payment channel between leaf nodes and backbone nodes (microtransactions per relayed byte)
+
+### Layer 3 — Client SDK
+- Library that apps integrate (JS, Python, Rust, mobile)
+- Handles: discovery → connection → fallback to relay → multi-homing
+- Abstracts away which backbone nodes are being used and what protocol
+
+### Existing Building Blocks
+- **libp2p** — DHT, mDNS, relay protocol, NAT traversal (production-tested in AI cluster project)
+- **WebRTC** — browser-to-browser
+- **Noise protocol / TLS** — encrypted transport
+- **Bitcoin/EVM smart contracts** — incentive layer
+
+## How Updates Work in a Distributed Network
+
+No central server to push updates to. The network must evolve without breaking itself.
+
+### Soft Updates (Protocol-Level)
+- Backbone nodes advertise their protocol version during handshake
+- If versions mismatch, they can still route traffic but newer features unavailable
+- Deprecation: old versions announce a sunset header signalling when support drops
+- **Example:** BitTorrent DHT has v1.0 nodes from 2005 coexisting with v2.0
+
+### Hard Updates (Breaking Changes)
+You can't force anyone to upgrade. Standard approach:
+
+1. **Announce** new protocol version through the existing network
+2. **Parallel run**: both old and new versions active for X months
+3. **Natural deprecation**: old nodes gradually lose connectivity as majority migrates
+4. Eventually old version has no peers to talk to — network heals itself
+
+### Who Decides What Changes?
+- **Open-source model**: maintainers propose, community adopts (or forks)
+- **Blockchain governance**: token holders vote on protocol upgrades
+- **Company-backed**: published specs + reference implementation, operators choose to update
+- **Reality**: some nodes never update. Network routes around them.
+
+### Real Examples of This Working
+- **Bitcoin**: soft forks activate at 95% miner signalling. Old nodes work but can't use new features.
+- **IPFS**: old/new nodes coexist. New features are backward-compatible.
+- **Tor**: directory authorities vote on protocol versions. Clients/relays auto-update.
+
+### For This Network Specifically
+- Backbone protocol versioning in the handshake
+- Reference implementation with auto-update mechanism (like Tor)
+- Breaking changes get a 6-month parallel-run window
+- Outdated nodes become leaf-only or get naturally isolated
+
 ## To Explore Further
 
 - libp2p's Circuit Relay v2 protocol as building block
